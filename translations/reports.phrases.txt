@@ -1,0 +1,279 @@
+"Phrases"
+{
+	//Чтобы использовать префикс нужно добавить в начало сообщения константу {PREFIX}
+	"Prefix"
+	{
+		"ru"		" {LIGHTPURPLE}Система жалоб {DEFAULT}→ "
+		"en"		" {LIGHTPURPLE}Система жалоб {DEFAULT}→ "
+	}
+	"Cooldown"
+	{
+		"ru"		"{PREFIX}Подождите %i секунд перед отправкой следующего репорта"
+		"en"		"{PREFIX}Wait %i seconds before sending the next report"
+	}
+	"CooldownPlayer"
+	{
+		"ru"		"{PREFIX}На данного игрока уже отправляли репорт, подождите %i секунд"
+		"en"		"{PREFIX}A report has already been sent on this player, wait %i seconds"
+	}
+	"MenuReportTitle"
+	{
+		"ru"		"Репорты<br>Варнов: %i"
+		"en"		"Reports<br>Warns: %i"
+	}
+	"MenuReportSend"
+	{
+		"ru"		"Отправить репорт"
+		"en"		"Send report"
+	}
+	"MenuReportMy"
+	{
+		"ru"		"Мои репорты"
+		"en"		"My reports"
+	}
+	"MenuReportAdmin"
+	{
+		"ru"		"Админ панель"
+		"en"		"Admin panel"
+	}
+	"MenuReportAdminTitle"
+	{
+		"ru"		"[А] Открытые репорты"
+		"en"		"[A] Open reports"
+	}
+	"MenuReportAdminItem"
+	{
+		"ru"		"На %s"
+		"en"		"On %s"
+	}
+	"MenuReportAdminItemEmpty"
+	{
+		"ru"		"Нет открытых репортов"
+		"en"		"No open reports"
+	}
+	"MenuReportAdminItemEmptyClosed"
+	{
+		"ru"		"Нет закрытых репортов"
+		"en"		"No closed reports"
+	}
+	"MenuReportShowTitle"
+	{
+		"ru"		"Открытый репорт"
+		"en"		"Open report"
+	}
+	"MenuReportShowItemTarget"
+	{
+		"ru"		"Нарушитель: %s"
+		"en"		"Offender: %s"
+	}
+	"MenuReportShowItemReason"
+	{
+		"ru"		"Причина: %s"
+		"en"		"Reason: %s"
+	}
+	"ReportUrl"
+	{
+		"ru"		"{PREFIX}Ссылка на репорт: %s/%i/%s/"
+		"en"		"{PREFIX}Report link: %s/%i/%s/"
+	}
+	"MyReportsOpen"
+	{
+		"ru"		"Открытые"
+		"en"		"Open"
+	}
+	"MyReportsClosed"
+	{
+		"ru"		"Закрытые"
+		"en"		"Closed"
+	}
+	"MenuMyReportsOpenTitle"
+	{
+		"ru"		"Открытые репорты"
+		"en"		"My open reports"
+	}
+	"MenuMyReportsClosedTitle"
+	{
+		"ru"		"Закрытые репорты"
+		"en"		"My closed reports"
+	}
+	"MenuMyReportsVerdict"
+	{
+		"ru"		"Вердикт: %s"
+		"en"		"Verdict: %s"
+	}
+	"MenuMyReportsAdmin"
+	{
+		"ru"		"Админ: %s"
+		"en"		"Admin: %s"
+	}
+	"MenuMyReportsClosed"
+	{
+		"ru"		"Закрыт: %02d-%02d, %02d:%02d"
+		"en"		"Closed: %02d-%02d, %02d:%02d"
+	}
+	"MenuMyReportsOpenStatus"
+	{
+		"ru"		"Статус: ожидание ответа"
+		"en"		"Status: waiting for response"
+	}
+	"PlayerListTitle"
+	{
+		"ru"		"Выберите игрока"
+		"en"		"Select player"
+	}
+	"PlayerListEmpty"
+	{
+		"ru"		"{PREFIX}Нет доступных игроков"
+		"en"		"{PREFIX}No available players"
+	}
+	"ReasonsTitle"
+	{
+		"ru"		"Выберите причину"
+		"en"		"Select reason"
+	}
+	"ReasonsOwn"
+	{
+		"ru"		"Своя причина"
+		"en"		"Custom reason"
+	}
+	"ReasonsOwnChat"
+	{
+		"ru"		"{PREFIX}Введите свою причину использую %s причина"
+		"en"		"{PREFIX}Enter your reason using %s reason"
+	}
+	"PlayerLeave"
+	{
+		"ru"		"{PREFIX}Игрок покинул сервер"
+		"en"		"{PREFIX}Player left the server"
+	}
+	"SuccessReportSend"
+	{
+		"ru"		"{PREFIX}Вы успешно отправили репорт"
+		"en"		"{PREFIX}You have successfully sent a report"
+	}
+	"AdminInfo"
+	{
+		"ru"		"{PREFIX}Новый репорт на %s"
+		"en"		"{PREFIX}New report on %s"
+	}
+	"AdminInfoUrl"
+	{
+		"ru"		"{PREFIX}Ссылка на репорт: %s/%i/%i"
+		"en"		"{PREFIX}Report link: %s/%i/%i"
+	}
+	
+	"WebHookServerName"
+	{
+		"ru"		"Название сервера: %s"
+		"en"		"Server name: %s"
+	}
+	"WebHookReportURL"
+	{
+		"ru"		"[**⮞ Рассмотреть репорт на сайте**](%s/%i/%i/)"
+		"en"		"[**⮞ Review report on the site**](%s/%i/%i/)"
+	}
+	"WebHookSendBody"
+	{
+		"ru"		"# 🔔 НОВЫЙ РЕПОРТ #%i
+ㅤ
+- **Отправил** →  [**%s (профиль)**](https://steamcommunity.com/profiles/%s)
+- **Нарушитель** →  [**%s (профиль)**](https://steamcommunity.com/profiles/%s)
+- Причина: **%s**
+- KD: **%0.1f** ● Убил/Умер: **%i/%i**
+- Prime статус: **%s**
+- Карта: **%s**
+ㅤ"
+		"en"		"# 🔔 NEW REPORT #%i
+ㅤ
+- **Sent by** →  [**%s (profile)**](https://steamcommunity.com/profiles/%s)
+- **Offender** →  [**%s (profile)**](https://steamcommunity.com/profiles/%s)
+- Reason: **%s**
+- KD: **%0.1f** ● Killed/Died: **%i/%i**
+- Prime status: **%s**
+- Map: **%s**
+ㅤ"
+	}
+	"WebHookUpdateVerdict"
+	{
+		"ru"		"# 🔔 РАССМОТРЕН #%s
+ㅤ
+- Рассмотрен: **%s**
+- Вердикт: **%s**"
+		"en"		"# 🔔 REVIEWED #%s
+ㅤ
+- Reviewed by: **%s**
+- Verdict: **%s**"
+	}
+	"WebHookUpdateTake"
+	{
+		"ru"		"# 🔔 НА РАССМОТРЕНИИ #%s
+ㅤ
+- Взят на рассмотрение: **%s**
+- Причина репорта: **%s**"
+		"en"		"# 🔔 UNDER REVIEW #%s
+ㅤ
+- Taken for review: **%s**
+- Report reason: **%s**"
+	}
+	"WebHookAdminReview"
+	{
+		"ru"		"Рассмотрел админ %s"
+		"en"		"Reviewed by admin %s"
+	}
+	"WebHookAdminTake"
+	{
+		"ru"		"Взял админ %s"
+		"en"		"Taken by admin %s"
+	}
+	"TimeWebHook"
+	{
+		"ru"		"Отправлен %d.%m в %H:%M"
+		"en"		"Sent %d.%m at %H:%M"
+	}
+	"TimeWebHook2"
+	{
+		"ru"		"%d.%m в %H:%M"
+		"en"		"%d.%m at %H:%M"
+	}
+	"ReasonsEmpty"
+	{
+		"ru"		"Вы не можете отправить репорт без причины"
+		"en"		"You cannot send a report without a reason"
+	}
+	"VKMessageContent"
+	{
+		//Возможные аргументы:
+		//{report_id}
+		//{server_name}
+		//{sender_name}
+		//{sender_steamid}
+		//{intruder_name}
+		//{intruder_steamid}
+		//{intruder_ip}
+		//{reason}
+		//{kd_ratio}
+		//{kills}
+		//{deaths}
+		//{prime}
+		//{map}
+
+		"ru"    "🔔 Пришёл новый репорт
+
+💁 Игрок: {sender_name}
+Нарушитель: {intruder_name}
+
+📝 Причина жалобы: {reason}
+
+SteamID: {intruder_steamid}
+IP Нарушителя: {intruder_ip}"
+		"en"    "🔔 Пришёл новый репорт
+
+💁 Игрок: {sender_name}
+Нарушитель: {intruder_name}
+
+📝 Причина жалобы: {reason}
+
+SteamID: {intruder_steamid}
+IP Нарушителя: {intruder_ip}"
+	}
+}
