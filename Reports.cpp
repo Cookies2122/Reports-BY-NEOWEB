@@ -9,23 +9,19 @@
 #include <cstring>
 #include <atomic>
 #include <deque>
-#include "include/sql_mm.h"
-#include "include/mysql_mm.h"
-#include "schemasystem/schemasystem.h"
 
 Reports g_Reports;
 PLUGIN_EXPOSE(Reports, g_Reports);
-
-IUtilsApi*   g_pUtils   = nullptr;
-IPlayersApi* g_pPlayers = nullptr;
-IMenusApi*   g_pMenus   = nullptr;
 
 CEntitySystem*      g_pEntitySystem     = nullptr;
 CGlobalVars*        gpGlobals           = nullptr;
 IVEngineServer2*    engine              = nullptr;
 CGameEntitySystem*  g_pGameEntitySystem = nullptr;
 
-ISteamHTTP* g_http = nullptr;
+IUtilsApi*   g_pUtils   = nullptr;
+IPlayersApi* g_pPlayers = nullptr;
+IMenusApi*   g_pMenus   = nullptr;
+ISteamHTTP*  g_http     = nullptr;
 
 static std::string g_sHostname = "Server";
 
@@ -323,25 +319,6 @@ private:
     std::vector<std::pair<std::string, std::string>> m_headers;
 };
 
-static std::string JsonEsc(const std::string& s)
-{
-    std::string out; out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if ((unsigned char)c < 0x20) {
-                    char b[8]; snprintf(b, sizeof(b), "\\u%04x", c);
-                    out += b;
-                } else out += c;
-        }
-    }
-    return out;
-}
 
 static void FetchSteamAvatar(uint64_t sid, std::function<void(std::string avatarUrl)> cb)
 {
@@ -619,39 +596,36 @@ static void BuildNewReportPayload(int newReportId,
 
         std::string description = std::string(snameLine) + "\n" + body;
 
-        std::string json = "{";
-        if (includeContentPing && !g_Cfg.discordContent.empty())
-            json += "\"content\":\"" + JsonEsc(g_Cfg.discordContent) + "\",";
-        json += "\"embeds\":[{";
-        json += "\"color\":15158332,";
-        json += "\"description\":\"" + JsonEsc(description) + "\",";
-
         char sidStr[32]; snprintf(sidStr, sizeof(sidStr), "%llu", (unsigned long long)victimSid);
         std::string sidBlock = std::string("```") + sidStr + "```";
-        json += "\"fields\":[";
-        json += "{\"name\":\":id: STEAM ID\",\"value\":\"" + JsonEsc(sidBlock) + "\",\"inline\":true}";
+
+        json fields = json::array();
+        fields.push_back({{"name", ":id: STEAM ID"}, {"value", sidBlock}, {"inline", true}});
         if (!ip.empty()) {
             std::string ipBlock = std::string("```") + ip + "```";
-            json += ",{\"name\":\":earth_americas: IP\",\"value\":\"" + JsonEsc(ipBlock) + "\",\"inline\":true}";
+            fields.push_back({{"name", ":earth_americas: IP"}, {"value", ipBlock}, {"inline", true}});
         }
+        if (!urlLine.empty())
+            fields.push_back({{"name", "​"}, {"value", urlLine}, {"inline", false}});
 
-        if (!urlLine.empty()) {
-            json += ",{\"name\":\"\\u200b\",\"value\":\"" + JsonEsc(urlLine) + "\",\"inline\":false}";
-        }
-        json += "]";
+        json embed = {
+            {"color", 15158332},
+            {"description", description},
+            {"fields", fields}
+        };
 
-        if (!avatarUrl.empty()) {
-            json += ",\"thumbnail\":{\"url\":\"" + JsonEsc(avatarUrl) + "\"}";
-        }
+        if (!avatarUrl.empty())
+            embed["thumbnail"] = {{"url", avatarUrl}};
 
         std::string sentLine = FormatDiscordTime("TimeWebHook");
-        if (!sentLine.empty()) {
-            json += ",\"footer\":{\"text\":\"" + JsonEsc(sentLine) + "\"}";
-        }
+        if (!sentLine.empty())
+            embed["footer"] = {{"text", sentLine}};
 
-        json += "}]}";
+        json payload = {{"embeds", json::array({embed})}};
+        if (includeContentPing && !g_Cfg.discordContent.empty())
+            payload["content"] = g_Cfg.discordContent;
 
-        onJson(std::move(json));
+        onJson(payload.dump());
     });
 }
 
@@ -695,12 +669,11 @@ static void EditDiscordBotMessage(int reportId, const std::string& messageId,
     std::string url = "https://discord.com/api/channels/" +
         g_Cfg.discordChannelId + "/messages/" + messageId;
 
-    std::string json = "{\"embeds\":[{";
-    json += "\"color\":" + std::to_string(color) + ",";
-    json += "\"description\":\"" + JsonEsc(description) + "\"";
-    json += "}]}";
+    json payload = {
+        {"embeds", json::array({{{"color", color}, {"description", description}}})}
+    };
 
-    auto* job = new DiscordHttpJob(k_EHTTPMethodPATCH, url, std::move(json), nullptr);
+    auto* job = new DiscordHttpJob(k_EHTTPMethodPATCH, url, payload.dump(), nullptr);
     job->SetHeader("Authorization", "Bot " + g_Cfg.discordBotToken);
     if (!job->Start()) delete job;
 }
@@ -755,30 +728,31 @@ static void SendDiscordWebhookReport(int newReportId,
         if (!urlLine.empty()) description += "\n" + urlLine;
         description += "\n" + sentLine;
 
-        std::string json = "{";
-        if (!g_Cfg.discordContent.empty())
-            json += "\"content\":\"" + JsonEsc(g_Cfg.discordContent) + "\",";
-        json += "\"embeds\":[{";
-        json += "\"color\":15158332,";
-        json += "\"description\":\"" + JsonEsc(description) + "\",";
-
         char sidStr[32]; snprintf(sidStr, sizeof(sidStr), "%llu", (unsigned long long)victimSid);
         std::string sidBlock = std::string("```") + sidStr + "```";
-        json += "\"fields\":[";
-        json += "{\"name\":\":id: STEAM ID\",\"value\":\"" + JsonEsc(sidBlock) + "\",\"inline\":true}";
+
+        json fields = json::array();
+        fields.push_back({{"name", ":id: STEAM ID"}, {"value", sidBlock}, {"inline", true}});
         if (!ip.empty()) {
             std::string ipBlock = std::string("```") + ip + "```";
-            json += ",{\"name\":\":earth_americas: IP\",\"value\":\"" + JsonEsc(ipBlock) + "\",\"inline\":true}";
+            fields.push_back({{"name", ":earth_americas: IP"}, {"value", ipBlock}, {"inline", true}});
         }
-        json += "]";
 
-        if (!avatarUrl.empty()) {
-            json += ",\"thumbnail\":{\"url\":\"" + JsonEsc(avatarUrl) + "\"}";
-        }
-        json += "}]}";
+        json embed = {
+            {"color", 15158332},
+            {"description", description},
+            {"fields", fields}
+        };
+
+        if (!avatarUrl.empty())
+            embed["thumbnail"] = {{"url", avatarUrl}};
+
+        json payload = {{"embeds", json::array({embed})}};
+        if (!g_Cfg.discordContent.empty())
+            payload["content"] = g_Cfg.discordContent;
 
         auto* job = new DiscordHttpJob(k_EHTTPMethodPOST,
-            g_Cfg.discordWebhook, std::move(json), nullptr);
+            g_Cfg.discordWebhook, payload.dump(), nullptr);
         if (!job->Start()) delete job;
     });
 }
@@ -892,20 +866,24 @@ static void SendStatusMessage(int reportId, const char* tplKey,
     };
 
     auto buildEmbedJson = [&]() -> std::string {
-        std::string json = "{\"content\":\"\",\"embeds\":[{";
-        json += "\"color\":" + std::to_string(discordColor) + ",";
+        json embed = {
+            {"color", discordColor},
+            {"description", buildDescription()}
+        };
         if (!authorName.empty()) {
-            json += "\"author\":{\"name\":\"" + JsonEsc(authorName) + "\"";
+            json author = {{"name", authorName}};
             if (!authorIconUrl.empty())
-                json += ",\"icon_url\":\"" + JsonEsc(authorIconUrl) + "\"";
-            json += "},";
+                author["icon_url"] = authorIconUrl;
+            embed["author"] = author;
         }
-        json += "\"description\":\"" + JsonEsc(buildDescription()) + "\"";
-        if (!thumbnailUrl.empty()) {
-            json += ",\"thumbnail\":{\"url\":\"" + JsonEsc(thumbnailUrl) + "\"}";
-        }
-        json += "}]}";
-        return json;
+        if (!thumbnailUrl.empty())
+            embed["thumbnail"] = {{"url", thumbnailUrl}};
+
+        json payload = {
+            {"content", ""},
+            {"embeds", json::array({embed})}
+        };
+        return payload.dump();
     };
 
     if (g_Cfg.discordType == 1) {

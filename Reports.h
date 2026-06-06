@@ -11,9 +11,16 @@
 #include "ehandle.h"
 #include "vector.h"
 #include "CCSPlayerController.h"
-#include "include/menus.h"
 #include "module.h"
 #include <KeyValues.h>
+
+#include "schemasystem/schemasystem.h"
+#include "include/menus.h"
+#include "include/sql_mm.h"
+#include "include/mysql_mm.h"
+
+#include "vendor/nlohmann/json.hpp"
+using json = nlohmann::json;
 
 using namespace DynLibUtils;
 
