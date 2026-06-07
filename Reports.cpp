@@ -4,28 +4,26 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <unordered_set>
+#include <mutex>
 #include <functional>
 #include <ctime>
 #include <cstring>
 #include <atomic>
 #include <deque>
-#include "include/sql_mm.h"
-#include "include/mysql_mm.h"
-#include "schemasystem/schemasystem.h"
 
 Reports g_Reports;
 PLUGIN_EXPOSE(Reports, g_Reports);
-
-IUtilsApi*   g_pUtils   = nullptr;
-IPlayersApi* g_pPlayers = nullptr;
-IMenusApi*   g_pMenus   = nullptr;
 
 CEntitySystem*      g_pEntitySystem     = nullptr;
 CGlobalVars*        gpGlobals           = nullptr;
 IVEngineServer2*    engine              = nullptr;
 CGameEntitySystem*  g_pGameEntitySystem = nullptr;
 
-ISteamHTTP* g_http = nullptr;
+IUtilsApi*   g_pUtils   = nullptr;
+IPlayersApi* g_pPlayers = nullptr;
+IMenusApi*   g_pMenus   = nullptr;
+ISteamHTTP*  g_http     = nullptr;
 
 static std::string g_sHostname = "Server";
 
@@ -210,6 +208,83 @@ static ISQLInterface*    g_pSQL    = nullptr;
 static IMySQLConnection* g_DbConn  = nullptr;
 static std::atomic<bool> g_DbReady{false};
 
+static std::unordered_set<int> g_NotifyTakeInFlight;
+static std::unordered_set<int> g_NotifyVerdictInFlight;
+static std::mutex              g_NotifyMtx;
+
+static void EnsureSchema()
+{
+    if (!g_DbConn) return;
+
+    static const char* kSchemas[] = {
+        "CREATE TABLE IF NOT EXISTS rs_reports ("
+        "  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+        "  name_intruder VARCHAR(64) NOT NULL DEFAULT '',"
+        "  steamid_intruder BIGINT UNSIGNED NOT NULL,"
+        "  ip_intruder VARCHAR(45) DEFAULT '',"
+        "  prime_intruder TINYINT(1) DEFAULT 0,"
+        "  kills INT DEFAULT 0,"
+        "  deaths INT DEFAULT 0,"
+        "  reason VARCHAR(255) NOT NULL DEFAULT '',"
+        "  name_sender VARCHAR(64) NOT NULL DEFAULT '',"
+        "  steamid_sender BIGINT UNSIGNED NOT NULL,"
+        "  prime_sender TINYINT(1) DEFAULT 0,"
+        "  smap VARCHAR(64) DEFAULT '',"
+        "  time BIGINT NOT NULL,"
+        "  status TINYINT NOT NULL DEFAULT 0,"
+        "  noty TINYINT NOT NULL DEFAULT 0,"
+        "  sid INT NOT NULL,"
+        "  name_admin_verdict VARCHAR(64) DEFAULT NULL,"
+        "  steamid_admin_verdict BIGINT UNSIGNED DEFAULT NULL,"
+        "  time_take BIGINT DEFAULT NULL,"
+        "  time_verdict BIGINT DEFAULT NULL,"
+        "  verdict VARCHAR(255) DEFAULT NULL,"
+        "  INDEX idx_sid_status (sid, status),"
+        "  INDEX idx_steamid_intruder (steamid_intruder),"
+        "  INDEX idx_steamid_sender (steamid_sender)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+
+        "CREATE TABLE IF NOT EXISTS rs_admins ("
+        "  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+        "  steamid BIGINT UNSIGNED NOT NULL,"
+        "  working TINYINT(1) NOT NULL DEFAULT 0,"
+        "  sid INT NOT NULL,"
+        "  INDEX idx_sid_steamid (sid, steamid)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+
+        "CREATE TABLE IF NOT EXISTS rs_warns ("
+        "  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+        "  steamid BIGINT UNSIGNED NOT NULL,"
+        "  sid INT NOT NULL,"
+        "  time BIGINT DEFAULT NULL,"
+        "  INDEX idx_steamid_sid (steamid, sid)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+
+        "CREATE TABLE IF NOT EXISTS rs_chatlogging ("
+        "  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+        "  name VARCHAR(64) NOT NULL DEFAULT '',"
+        "  steamid BIGINT UNSIGNED NOT NULL,"
+        "  message TEXT NOT NULL,"
+        "  time BIGINT NOT NULL,"
+        "  rid INT NOT NULL,"
+        "  INDEX idx_rid (rid)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+
+        "CREATE TABLE IF NOT EXISTS rs_servers ("
+        "  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,"
+        "  web_id INT NOT NULL DEFAULT 0,"
+        "  iks_sid INT NOT NULL DEFAULT 0,"
+        "  sid INT NOT NULL,"
+        "  UNIQUE KEY uk_sid (sid)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    };
+
+    for (const char* sql : kSchemas) {
+        g_DbConn->Query(sql, [](ISQLQuery*){});
+    }
+    ConColorMsg(Color(0,200,0,255), "[Reports] DB schema ensured (5 tables)\n");
+}
+
 static void DbConnect()
 {
     if (!g_pSQL) return;
@@ -242,6 +317,7 @@ static void DbConnect()
         g_DbReady = ok;
         if (ok) {
             ConColorMsg(Color(0,255,0,255), "[Reports] MySQL connected via sql_mm\n");
+            EnsureSchema();
         } else {
             ConColorMsg(Color(255,0,0,255), "[Reports] MySQL connect failed via sql_mm\n");
         }
@@ -323,25 +399,6 @@ private:
     std::vector<std::pair<std::string, std::string>> m_headers;
 };
 
-static std::string JsonEsc(const std::string& s)
-{
-    std::string out; out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if ((unsigned char)c < 0x20) {
-                    char b[8]; snprintf(b, sizeof(b), "\\u%04x", c);
-                    out += b;
-                } else out += c;
-        }
-    }
-    return out;
-}
 
 static void FetchSteamAvatar(uint64_t sid, std::function<void(std::string avatarUrl)> cb)
 {
@@ -619,39 +676,36 @@ static void BuildNewReportPayload(int newReportId,
 
         std::string description = std::string(snameLine) + "\n" + body;
 
-        std::string json = "{";
-        if (includeContentPing && !g_Cfg.discordContent.empty())
-            json += "\"content\":\"" + JsonEsc(g_Cfg.discordContent) + "\",";
-        json += "\"embeds\":[{";
-        json += "\"color\":15158332,";
-        json += "\"description\":\"" + JsonEsc(description) + "\",";
-
         char sidStr[32]; snprintf(sidStr, sizeof(sidStr), "%llu", (unsigned long long)victimSid);
         std::string sidBlock = std::string("```") + sidStr + "```";
-        json += "\"fields\":[";
-        json += "{\"name\":\":id: STEAM ID\",\"value\":\"" + JsonEsc(sidBlock) + "\",\"inline\":true}";
+
+        json fields = json::array();
+        fields.push_back({{"name", ":id: STEAM ID"}, {"value", sidBlock}, {"inline", true}});
         if (!ip.empty()) {
             std::string ipBlock = std::string("```") + ip + "```";
-            json += ",{\"name\":\":earth_americas: IP\",\"value\":\"" + JsonEsc(ipBlock) + "\",\"inline\":true}";
+            fields.push_back({{"name", ":earth_americas: IP"}, {"value", ipBlock}, {"inline", true}});
         }
+        if (!urlLine.empty())
+            fields.push_back({{"name", "​"}, {"value", urlLine}, {"inline", false}});
 
-        if (!urlLine.empty()) {
-            json += ",{\"name\":\"\\u200b\",\"value\":\"" + JsonEsc(urlLine) + "\",\"inline\":false}";
-        }
-        json += "]";
+        json embed = {
+            {"color", 15158332},
+            {"description", description},
+            {"fields", fields}
+        };
 
-        if (!avatarUrl.empty()) {
-            json += ",\"thumbnail\":{\"url\":\"" + JsonEsc(avatarUrl) + "\"}";
-        }
+        if (!avatarUrl.empty())
+            embed["thumbnail"] = {{"url", avatarUrl}};
 
         std::string sentLine = FormatDiscordTime("TimeWebHook");
-        if (!sentLine.empty()) {
-            json += ",\"footer\":{\"text\":\"" + JsonEsc(sentLine) + "\"}";
-        }
+        if (!sentLine.empty())
+            embed["footer"] = {{"text", sentLine}};
 
-        json += "}]}";
+        json payload = {{"embeds", json::array({embed})}};
+        if (includeContentPing && !g_Cfg.discordContent.empty())
+            payload["content"] = g_Cfg.discordContent;
 
-        onJson(std::move(json));
+        onJson(payload.dump());
     });
 }
 
@@ -695,12 +749,11 @@ static void EditDiscordBotMessage(int reportId, const std::string& messageId,
     std::string url = "https://discord.com/api/channels/" +
         g_Cfg.discordChannelId + "/messages/" + messageId;
 
-    std::string json = "{\"embeds\":[{";
-    json += "\"color\":" + std::to_string(color) + ",";
-    json += "\"description\":\"" + JsonEsc(description) + "\"";
-    json += "}]}";
+    json payload = {
+        {"embeds", json::array({{{"color", color}, {"description", description}}})}
+    };
 
-    auto* job = new DiscordHttpJob(k_EHTTPMethodPATCH, url, std::move(json), nullptr);
+    auto* job = new DiscordHttpJob(k_EHTTPMethodPATCH, url, payload.dump(), nullptr);
     job->SetHeader("Authorization", "Bot " + g_Cfg.discordBotToken);
     if (!job->Start()) delete job;
 }
@@ -755,30 +808,31 @@ static void SendDiscordWebhookReport(int newReportId,
         if (!urlLine.empty()) description += "\n" + urlLine;
         description += "\n" + sentLine;
 
-        std::string json = "{";
-        if (!g_Cfg.discordContent.empty())
-            json += "\"content\":\"" + JsonEsc(g_Cfg.discordContent) + "\",";
-        json += "\"embeds\":[{";
-        json += "\"color\":15158332,";
-        json += "\"description\":\"" + JsonEsc(description) + "\",";
-
         char sidStr[32]; snprintf(sidStr, sizeof(sidStr), "%llu", (unsigned long long)victimSid);
         std::string sidBlock = std::string("```") + sidStr + "```";
-        json += "\"fields\":[";
-        json += "{\"name\":\":id: STEAM ID\",\"value\":\"" + JsonEsc(sidBlock) + "\",\"inline\":true}";
+
+        json fields = json::array();
+        fields.push_back({{"name", ":id: STEAM ID"}, {"value", sidBlock}, {"inline", true}});
         if (!ip.empty()) {
             std::string ipBlock = std::string("```") + ip + "```";
-            json += ",{\"name\":\":earth_americas: IP\",\"value\":\"" + JsonEsc(ipBlock) + "\",\"inline\":true}";
+            fields.push_back({{"name", ":earth_americas: IP"}, {"value", ipBlock}, {"inline", true}});
         }
-        json += "]";
 
-        if (!avatarUrl.empty()) {
-            json += ",\"thumbnail\":{\"url\":\"" + JsonEsc(avatarUrl) + "\"}";
-        }
-        json += "}]}";
+        json embed = {
+            {"color", 15158332},
+            {"description", description},
+            {"fields", fields}
+        };
+
+        if (!avatarUrl.empty())
+            embed["thumbnail"] = {{"url", avatarUrl}};
+
+        json payload = {{"embeds", json::array({embed})}};
+        if (!g_Cfg.discordContent.empty())
+            payload["content"] = g_Cfg.discordContent;
 
         auto* job = new DiscordHttpJob(k_EHTTPMethodPOST,
-            g_Cfg.discordWebhook, std::move(json), nullptr);
+            g_Cfg.discordWebhook, payload.dump(), nullptr);
         if (!job->Start()) delete job;
     });
 }
@@ -892,20 +946,24 @@ static void SendStatusMessage(int reportId, const char* tplKey,
     };
 
     auto buildEmbedJson = [&]() -> std::string {
-        std::string json = "{\"content\":\"\",\"embeds\":[{";
-        json += "\"color\":" + std::to_string(discordColor) + ",";
+        json embed = {
+            {"color", discordColor},
+            {"description", buildDescription()}
+        };
         if (!authorName.empty()) {
-            json += "\"author\":{\"name\":\"" + JsonEsc(authorName) + "\"";
+            json author = {{"name", authorName}};
             if (!authorIconUrl.empty())
-                json += ",\"icon_url\":\"" + JsonEsc(authorIconUrl) + "\"";
-            json += "},";
+                author["icon_url"] = authorIconUrl;
+            embed["author"] = author;
         }
-        json += "\"description\":\"" + JsonEsc(buildDescription()) + "\"";
-        if (!thumbnailUrl.empty()) {
-            json += ",\"thumbnail\":{\"url\":\"" + JsonEsc(thumbnailUrl) + "\"}";
-        }
-        json += "}]}";
-        return json;
+        if (!thumbnailUrl.empty())
+            embed["thumbnail"] = {{"url", thumbnailUrl}};
+
+        json payload = {
+            {"content", ""},
+            {"embeds", json::array({embed})}
+        };
+        return payload.dump();
     };
 
     if (g_Cfg.discordType == 1) {
@@ -1003,6 +1061,12 @@ static void PollReportStages()
                 std::string reas2 = reas ? std::string(reas) : "";
                 std::string aname = authorName;
 
+                {
+                    std::lock_guard<std::mutex> lk(g_NotifyMtx);
+                    if (g_NotifyTakeInFlight.count(rid)) continue;
+                    g_NotifyTakeInFlight.insert(rid);
+                }
+
                 FetchSteamAvatar(adminSid, [rid, aname, ts, reas2, intrSid](std::string adminAv) {
                     FetchSteamAvatar(intrSid, [rid, aname, ts, reas2, adminAv](std::string intrAv) {
                         SendStatusMessage(rid, "WebHookUpdateTake",
@@ -1014,7 +1078,10 @@ static void PollReportStages()
                 char uq[128];
                 snprintf(uq, sizeof(uq),
                     "UPDATE rs_reports SET noty=1 WHERE id=%d", rid);
-                g_DbConn->Query(uq, [](ISQLQuery*){});
+                g_DbConn->Query(uq, [rid](ISQLQuery*){
+                    std::lock_guard<std::mutex> lk(g_NotifyMtx);
+                    g_NotifyTakeInFlight.erase(rid);
+                });
             }
         });
     }
@@ -1052,6 +1119,12 @@ static void PollReportStages()
                 std::string verd2 = verd;
                 std::string aname = authorName;
 
+                {
+                    std::lock_guard<std::mutex> lk(g_NotifyMtx);
+                    if (g_NotifyVerdictInFlight.count(rid)) continue;
+                    g_NotifyVerdictInFlight.insert(rid);
+                }
+
                 FetchSteamAvatar(adminSid, [rid, aname, ts, verd2, intrSid](std::string adminAv) {
                     FetchSteamAvatar(intrSid, [rid, aname, ts, verd2, adminAv](std::string intrAv) {
                         SendStatusMessage(rid, "WebHookUpdateVerdict",
@@ -1063,7 +1136,10 @@ static void PollReportStages()
                 char uq[128];
                 snprintf(uq, sizeof(uq),
                     "UPDATE rs_reports SET noty=2 WHERE id=%d", rid);
-                g_DbConn->Query(uq, [](ISQLQuery*){});
+                g_DbConn->Query(uq, [rid](ISQLQuery*){
+                    std::lock_guard<std::mutex> lk(g_NotifyMtx);
+                    g_NotifyVerdictInFlight.erase(rid);
+                });
             }
         });
     }
@@ -1893,7 +1969,7 @@ const char *Reports::GetLicense()
 
 const char *Reports::GetVersion()
 {
-    return "1.0.0";
+    return "1.0.1";
 }
 
 const char *Reports::GetDate()
