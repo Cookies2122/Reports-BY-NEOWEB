@@ -19,7 +19,7 @@
 #include "include/sql_mm.h"
 #include "include/mysql_mm.h"
 
-#include "vendor/nlohmann/json.hpp"
+#include "nlohmann/json.hpp"
 using json = nlohmann::json;
 
 using namespace DynLibUtils;
